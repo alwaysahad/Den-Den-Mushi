@@ -36,7 +36,7 @@ function App() {
     const initialRoom = url.searchParams.get('room')?.trim() || 'broadcast';
     desiredRoomRef.current = initialRoom;
     const resolveWsUrl = (): string => {
-      const envUrl = (import.meta as any).env?.VITE_WS_URL as string | undefined;
+      const envUrl = (import.meta as unknown as any).env?.VITE_WS_URL as string | undefined;
       if (envUrl && envUrl.trim().length > 0) return envUrl.trim();
       // Fallbacks: dev -> localhost:8080, prod -> same host with ws/wss
       if (window.location.port === '5173') return 'ws://localhost:8080';
