@@ -208,4 +208,10 @@ Next steps (ideas)
 - Better moderation/ownership per room
 - Deploy scripts and containerization
 
+Repository hygiene
+
+- CI: GitHub Actions at `.github/workflows/ci.yml` builds backend and frontend and runs lints on PRs
+- EditorConfig: `.editorconfig` enforces consistent formatting
+- PR template: `.github/PULL_REQUEST_TEMPLATE.md` for consistent reviews
+
 
