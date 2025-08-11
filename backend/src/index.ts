@@ -1,4 +1,5 @@
 import { WebSocketServer, WebSocket, RawData } from "ws";
+import http from "http";
 
 type RoomId = string;
 
@@ -21,7 +22,14 @@ type IncomingMessage = JoinMessage | ChatMessage | IdentifyMessage;
 
 const DEFAULT_ROOM_ID: RoomId = "broadcast";
 
-const wss = new WebSocketServer({ port: 8080 });
+const port = Number(process.env.PORT) || 8080;
+const httpServer = http.createServer((req, res) => {
+    // Simple health endpoint so PaaS HTTP probes succeed
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("ok");
+});
+
+const wss = new WebSocketServer({ server: httpServer });
 
 const roomIdToClients: Map<RoomId, Set<WebSocket>> = new Map();
 const clientToRoomId: Map<WebSocket, RoomId> = new Map();
@@ -205,4 +213,9 @@ wss.on("connection", (socket: WebSocket) => {
             }
         }
     });
+});
+
+httpServer.listen(port, () => {
+    // eslint-disable-next-line no-console
+    console.log(`Server listening on port ${port}`);
 });
