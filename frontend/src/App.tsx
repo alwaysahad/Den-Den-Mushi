@@ -35,7 +35,15 @@ function App() {
     const url = new URL(window.location.href);
     const initialRoom = url.searchParams.get('room')?.trim() || 'broadcast';
     desiredRoomRef.current = initialRoom;
-    const ws = new WebSocket('ws://localhost:8080');
+    const resolveWsUrl = (): string => {
+      const envUrl = (import.meta as any).env?.VITE_WS_URL as string | undefined;
+      if (envUrl && envUrl.trim().length > 0) return envUrl.trim();
+      // Fallbacks: dev -> localhost:8080, prod -> same host with ws/wss
+      if (window.location.port === '5173') return 'ws://localhost:8080';
+      const isHttps = window.location.protocol === 'https:';
+      return `${isHttps ? 'wss' : 'ws'}://${window.location.host}`;
+    };
+    const ws = new WebSocket(resolveWsUrl());
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -66,7 +74,10 @@ function App() {
           setNeedsIdentity(false);
           setNameError('');
           storedNameRef.current = String(parsed.payload.name);
-          try { localStorage.setItem('displayName', storedNameRef.current); } catch {}
+          try { localStorage.setItem('displayName', storedNameRef.current); } catch (err) {
+            // ignore storage errors in CI/browsers without quota
+            console.debug('localStorage set displayName failed', err);
+          }
           // Now that identity is set, join desired room
           const target = desiredRoomRef.current || 'broadcast';
           wsRef.current?.send(JSON.stringify({ type: 'join', payload: { roomId: target } }));
@@ -78,7 +89,9 @@ function App() {
           setNeedsIdentity(true);
           // Clear stored name if it conflicts to avoid loops
           storedNameRef.current = null;
-          try { localStorage.removeItem('displayName'); } catch {}
+          try { localStorage.removeItem('displayName'); } catch (err) {
+            console.debug('localStorage remove displayName failed', err);
+          }
           return;
         }
         if (parsed?.type === 'error' && parsed?.payload?.code === 'NOT_IDENTIFIED') {
