@@ -209,6 +209,7 @@ function App() {
         <div className="p-4 bg-gray-900/60 backdrop-blur border-b border-white/10">
           <div className="flex items-center justify-between">
             <div className="text-lg font-semibold">
+              <img src="/logo.png" alt="Den Den Mushi Logo" className="inline-block w-8 h-8 mr-1" />
               <span className="bg-gradient-to-r from-fuchsia-400 to-purple-400 bg-clip-text text-transparent">Chatter</span>
               <span className="ml-2 text-xs text-gray-400">roomed chat</span>
             </div>
