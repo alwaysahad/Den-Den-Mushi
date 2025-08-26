@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket, RawData } from "ws";
-import http, { IncomingMessage, ServerResponse } from "http";
+import * as http from "http";
 
 type RoomId = string;
 
@@ -23,7 +23,7 @@ type IncomingMessage = JoinMessage | ChatMessage | IdentifyMessage;
 const DEFAULT_ROOM_ID: RoomId = "broadcast";
 
 const port = Number(process.env.PORT) || 8080;
-const httpServer = http.createServer((req: IncomingMessage, res: ServerResponse) => {
+const httpServer = http.createServer((req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage>) => {
     // Simple health endpoint so PaaS HTTP probes succeed
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("ok");
