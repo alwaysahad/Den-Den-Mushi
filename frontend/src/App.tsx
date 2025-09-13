@@ -1,9 +1,18 @@
 import { useEffect, useState, useRef } from 'react';
 import './App.css';
 
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
+}
+
 function App() {
   type ChatItem =
-    | { kind: 'chat'; message: string; sender: string; timestamp: number; roomId: string }
+    | { kind: 'chat'; message: string; sender: string; timestamp: number; roomId: string; userId: string }
     | { kind: 'system'; message: string; timestamp: number; roomId: string }
     | { kind: 'raw'; raw: string };
   const [messages, setMessages] = useState<ChatItem[]>([]);
@@ -15,17 +24,22 @@ function App() {
   const endRef = useRef<HTMLDivElement | null>(null);
   const [copied, setCopied] = useState(false);
   const [myName, setMyName] = useState<string>('');
+  const [myUserId, setMyUserId] = useState<string>('');
+  const [serverSessionId, setServerSessionId] = useState<string>('');
   const [needsIdentity, setNeedsIdentity] = useState<boolean>(true);
   const [nameInput, setNameInput] = useState<string>('');
   const [nameError, setNameError] = useState<string>('');
   const storedNameRef = useRef<string | null>(null);
+  const storedSessionRef = useRef<string | null>(null);
   const desiredRoomRef = useRef<string>('broadcast');
   const [memberCount, setMemberCount] = useState<number>(0);
 
   useEffect(() => {
     // Load stored name on first render to avoid showing modal on refresh
     const stored = localStorage.getItem('displayName');
+    const storedSession = localStorage.getItem('serverSessionId');
     storedNameRef.current = stored;
+    storedSessionRef.current = storedSession;
     if (stored) {
       setMyName(stored);
       setNameInput(stored);
@@ -49,28 +63,37 @@ function App() {
     ws.onopen = () => {
       console.log('Connected to server');
       setIsConnected(true);
-      // Identify automatically if we have a stored name; join will happen after identity
-      if (storedNameRef.current) {
-        ws.send(JSON.stringify({ type: 'identify', payload: { name: storedNameRef.current } }));
-      } else {
-        setNeedsIdentity(true);
-      }
+      // Do not auto-identify yet; wait for server_info to check session
     };
 
     ws.onmessage = (event: MessageEvent) => {
       try {
         const parsed = JSON.parse(String(event.data));
-        if (parsed?.type === 'require_identity') {
-          // Auto-identify if we have a stored name; otherwise prompt
-          if (storedNameRef.current) {
+        if (parsed?.type === 'server_info' && parsed?.payload?.sessionId) {
+          const currentSession = String(parsed.payload.sessionId);
+          setServerSessionId(currentSession);
+          if (storedSessionRef.current !== currentSession) {
+            // Session changed (server restarted), clear stored name and prompt
+            storedNameRef.current = null;
+            storedSessionRef.current = currentSession;
+            try { localStorage.removeItem('displayName'); } catch {}
+            try { localStorage.setItem('serverSessionId', currentSession); } catch {}
+            setNeedsIdentity(true);
+          } else if (storedNameRef.current) {
+            // Session matches, auto-identify
             wsRef.current?.send(JSON.stringify({ type: 'identify', payload: { name: storedNameRef.current } }));
           } else {
             setNeedsIdentity(true);
           }
           return;
         }
+        if (parsed?.type === 'require_identity') {
+          // Ignore; we handle identity after server_info
+          return;
+        }
         if (parsed?.type === 'identity' && parsed?.payload?.name) {
           setMyName(String(parsed.payload.name));
+          setMyUserId(String(parsed.payload.userId || ''));
           setNeedsIdentity(false);
           setNameError('');
           storedNameRef.current = String(parsed.payload.name);
@@ -78,20 +101,11 @@ function App() {
             // ignore storage errors in CI/browsers without quota
             console.debug('localStorage set displayName failed', err);
           }
+          try { localStorage.setItem('serverSessionId', serverSessionId); } catch {}
           // Now that identity is set, join desired room
           const target = desiredRoomRef.current || 'broadcast';
           wsRef.current?.send(JSON.stringify({ type: 'join', payload: { roomId: target } }));
           setCurrentRoom(target);
-          return;
-        }
-        if (parsed?.type === 'identify_error' && parsed?.payload?.code === 'NAME_TAKEN') {
-          setNameError('Name is already taken');
-          setNeedsIdentity(true);
-          // Clear stored name if it conflicts to avoid loops
-          storedNameRef.current = null;
-          try { localStorage.removeItem('displayName'); } catch (err) {
-            console.debug('localStorage remove displayName failed', err);
-          }
           return;
         }
         if (parsed?.type === 'error' && parsed?.payload?.code === 'NOT_IDENTIFIED') {
@@ -99,8 +113,8 @@ function App() {
           return;
         }
         if (parsed?.type === 'chat' && parsed?.payload) {
-          const { message, sender, timestamp, roomId } = parsed.payload;
-          setMessages((m) => [...m, { kind: 'chat', message: String(message), sender: String(sender), timestamp: Number(timestamp), roomId: String(roomId) }]);
+          const { message, sender, timestamp, roomId, userId } = parsed.payload;
+          setMessages((m) => [...m, { kind: 'chat', message: String(message), sender: String(sender), timestamp: Number(timestamp), roomId: String(roomId), userId: String(userId) }]);
           return;
         }
         if (parsed?.type === 'system' && parsed?.payload) {
@@ -261,19 +275,21 @@ function App() {
               );
             }
             if (item.kind === 'chat') {
-              const isMine = item.sender === myName;
+              const isMine = item.userId === myUserId;
               const bubbleClass = isMine
                 ? 'bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white ml-auto'
                 : 'bg-gray-800/70 border border-white/10 text-white';
               const containerClass = isMine ? 'flex justify-end' : 'flex justify-start';
+              const hue = hashString(item.userId) % 360;
+              const senderColor = `hsl(${hue}, 70%, 60%)`;
               return (
                 <div key={idx} className={containerClass}>
                   <div className={`inline-block max-w-[80%] rounded-2xl px-4 py-2 shadow-lg shadow-black/30 ${bubbleClass}`}>
                     {!isMine && (
-                      <div className="text-xs text-gray-200/80 mb-1">{item.sender}</div>
+                      <div className="text-xs mb-1" style={{ color: senderColor }}>{item.sender}</div>
                     )}
                     <div className="whitespace-pre-wrap leading-relaxed">{item.message}</div>
-                    <div className="text-[10px] text-white/70 mt-1">{new Date(item.timestamp).toLocaleTimeString()}</div>
+                    <div className="text-[10px] text-white/70 mt-1">{new Date(item.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</div>
                   </div>
                 </div>
               );
